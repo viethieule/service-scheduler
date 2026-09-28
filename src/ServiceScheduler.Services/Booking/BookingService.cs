@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Npgsql;
 using ServiceScheduler.Data;
 using ServiceScheduler.Data.Entities;
@@ -6,7 +8,10 @@ using ServiceScheduler.Shared;
 
 namespace ServiceScheduler.Services.Booking;
 
-public class BookingService(SchedulerDbContext db, IServiceContext serviceContext) : IBookingService
+public class BookingService(
+    SchedulerDbContext db,
+    IServiceContext serviceContext,
+    ILogger<BookingService> logger) : IBookingService
 {
     /// <summary>PostgreSQL <c>exclusion_violation</c>: an overlap constraint rejected the row.</summary>
     private const string ExclusionViolation = "23P01";
@@ -141,12 +146,23 @@ public class BookingService(SchedulerDbContext db, IServiceContext serviceContex
 
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
 
+        var lockWait = Stopwatch.StartNew();
+
         try
         {
             await AcquireDayLockAsync(dealership.Id, startAt, ct);
         }
         catch (PostgresException ex) when (ex.SqlState == LockNotAvailable)
         {
+            // Load, not a capacity answer. Nothing about this attempt reaches the database,
+            // so this line is the only record that it happened.
+            logger.LogWarning(
+                "Booking lock timed out for dealership {DealershipId} on {BookingDate} "
+                + "after {LockWaitMs}ms. The dealership-day schedule is contended.",
+                dealership.Id,
+                DateOnly.FromDateTime(startAt),
+                lockWait.ElapsedMilliseconds);
+
             return Result<BookingConfirmation>.Fail(BookingError.Busy);
         }
 
@@ -182,10 +198,24 @@ public class BookingService(SchedulerDbContext db, IServiceContext serviceContex
         {
             await db.SaveChangesAsync(ct);
         }
-        catch (DbUpdateException ex) when (IsOverlapRejection(ex))
+        catch (DbUpdateException ex) when (IsOverlapRejection(ex, out var violation))
         {
-            // Unreachable for callers that take the lock. Still handled, because the
-            // constraints also police writers that bypass this service entirely.
+            // Should be unreachable: the lock above serialises every caller that goes
+            // through this service. Reaching it means either something wrote to
+            // appointments without taking the lock, or the lock itself regressed - which
+            // is otherwise invisible, because bookings keep succeeding either way.
+            logger.LogWarning(
+                "Overlap constraint {ConstraintName} rejected a booking that held the "
+                + "dealership-day lock. Dealership {DealershipId}, {StartAt:o} to {EndAt:o}, "
+                + "bay {ServiceBayId}, technician {TechnicianId}. Either a writer bypassed "
+                + "the lock or the locking path has regressed.",
+                violation.ConstraintName,
+                dealership.Id,
+                startAt,
+                endAt,
+                bay.Id,
+                technician.Id);
+
             db.Entry(appointment).State = EntityState.Detached;
             return Result<BookingConfirmation>.Fail(BookingError.NoCapacity);
         }
@@ -244,8 +274,17 @@ public class BookingService(SchedulerDbContext db, IServiceContext serviceContex
         && TimeOnly.FromDateTime(startAt) >= SchedulingConstants.BusinessDayStart
         && TimeOnly.FromDateTime(endAt.AddTicks(-1)) < SchedulingConstants.BusinessDayEnd;
 
-    private static bool IsOverlapRejection(DbUpdateException ex) =>
-        ex.InnerException is PostgresException { SqlState: ExclusionViolation };
+    private static bool IsOverlapRejection(DbUpdateException ex, out PostgresException violation)
+    {
+        if (ex.InnerException is PostgresException { SqlState: ExclusionViolation } postgres)
+        {
+            violation = postgres;
+            return true;
+        }
+
+        violation = null!;
+        return false;
+    }
 
     private static (DateTime Start, DateTime End) BusinessDay(DateOnly date)
     {

@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using ServiceScheduler.Data;
 using ServiceScheduler.Services.Booking;
 using ServiceScheduler.Shared;
@@ -13,7 +14,7 @@ public class BookingContentionTests(SchedulerFixture fixture)
             DateTime.UtcNow.Date.AddDays(7).AddHours(hour), DateTimeKind.Utc);
 
     private IBookingService NewService(SchedulerDbContext db) =>
-        new BookingService(db, new TestServiceContext(SeedData.CustomerId));
+        new BookingService(db, new TestServiceContext(SeedData.CustomerId), NullLogger<BookingService>.Instance);
 
     /// <summary>
     /// With the dealership-day advisory lock in place this is deterministic: every caller
@@ -118,7 +119,7 @@ public class BookingContentionTests(SchedulerFixture fixture)
     public async Task Booking_a_vehicle_owned_by_someone_else_is_rejected()
     {
         await using var db = fixture.CreateContext();
-        var service = new BookingService(db, new TestServiceContext(customerId: 999));
+        var service = new BookingService(db, new TestServiceContext(customerId: 999), NullLogger<BookingService>.Instance);
 
         var result = await service.CreateBookingAsync(new CreateBookingCommand(
             SeedData.DealershipId,

@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging.Abstractions;
 using ServiceScheduler.Data;
 using ServiceScheduler.Services;
 using ServiceScheduler.Services.Booking;
@@ -9,7 +10,7 @@ namespace ServiceScheduler.Tests;
 public class AvailabilityTests(SchedulerFixture fixture)
 {
     private IBookingService NewService(Data.SchedulerDbContext db) =>
-        new BookingService(db, new TestServiceContext(SeedData.CustomerId));
+        new BookingService(db, new TestServiceContext(SeedData.CustomerId), NullLogger<BookingService>.Instance);
 
     [Fact]
     public async Task Unknown_service_type_is_rejected()
