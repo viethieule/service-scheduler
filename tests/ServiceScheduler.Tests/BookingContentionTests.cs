@@ -16,16 +16,14 @@ public class BookingContentionTests(SchedulerFixture fixture)
         new BookingService(db, new TestServiceContext(SeedData.CustomerId));
 
     /// <summary>
-    /// The safety property: concurrency never confirms more than there is capacity, and a
-    /// caller either succeeds or is told there is none.
-    ///
-    /// It deliberately does not require capacity to be fully used. Assignment picks one
-    /// candidate bay and technician without retrying, so under tight concurrency every
-    /// caller can choose the same pair and all but one lose, even though another pair was
-    /// free. That is under-use, not over-booking, and closing it is the contention work.
+    /// With the dealership-day advisory lock in place this is deterministic: every caller
+    /// reads committed state under the lock, so exactly the seeded capacity is confirmed
+    /// and the rest are correctly told there is none. Before the lock the outcome varied
+    /// between one and two, because callers raced and losers were rejected although
+    /// another pair was free.
     /// </summary>
     [Fact]
-    public async Task Concurrent_bookings_for_one_slot_never_exceed_capacity()
+    public async Task Concurrent_bookings_for_one_slot_confirm_exactly_the_seeded_capacity()
     {
         const int attempts = 20;
         const int seededCapacity = 2; // two service bays, two technicians
@@ -50,13 +48,13 @@ public class BookingContentionTests(SchedulerFixture fixture)
         var confirmed = results.Count(r => r.IsSuccess);
         var rejected = results.Count(r => r.Error == BookingError.NoCapacity);
 
-        Assert.InRange(confirmed, 1, seededCapacity);
-        Assert.Equal(attempts - confirmed, rejected);
+        Assert.Equal(seededCapacity, confirmed);
+        Assert.Equal(attempts - seededCapacity, rejected);
 
-        // Whatever was confirmed must sit on distinct resources.
+        // Every confirmation must sit on a distinct bay and a distinct technician.
         var winners = results.Where(r => r.IsSuccess).Select(r => r.Value!).ToList();
-        Assert.Equal(confirmed, winners.Select(w => w.ServiceBayId).Distinct().Count());
-        Assert.Equal(confirmed, winners.Select(w => w.TechnicianId).Distinct().Count());
+        Assert.Equal(seededCapacity, winners.Select(w => w.ServiceBayId).Distinct().Count());
+        Assert.Equal(seededCapacity, winners.Select(w => w.TechnicianId).Distinct().Count());
     }
 
     [Fact]
@@ -130,6 +128,39 @@ public class BookingContentionTests(SchedulerFixture fixture)
 
         Assert.False(result.IsSuccess);
         Assert.Equal(BookingError.VehicleNotOwned, result.Error);
+    }
+
+    [Fact]
+    public async Task Booking_outside_the_business_day_is_rejected()
+    {
+        await using var db = fixture.CreateContext();
+
+        // 23:00 with a 120-minute service would cross midnight, which the single
+        // dealership-day lock cannot cover.
+        var result = await NewService(db).CreateBookingAsync(new CreateBookingCommand(
+            SeedData.DealershipId,
+            SeedData.VehicleId,
+            SeedData.BrakeServiceId,
+            NextWeekdayAt(23)));
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(BookingError.OutsideBusinessHours, result.Error);
+    }
+
+    [Fact]
+    public async Task Booking_that_would_run_past_closing_is_rejected()
+    {
+        await using var db = fixture.CreateContext();
+
+        // 17:00 + 120 minutes ends at 19:00, an hour after closing.
+        var result = await NewService(db).CreateBookingAsync(new CreateBookingCommand(
+            SeedData.DealershipId,
+            SeedData.VehicleId,
+            SeedData.BrakeServiceId,
+            NextWeekdayAt(17)));
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(BookingError.OutsideBusinessHours, result.Error);
     }
 
     [Fact]

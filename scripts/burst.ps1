@@ -3,13 +3,12 @@
     Fires concurrent booking requests at one identical start time.
 
 .DESCRIPTION
-    Checks the safety property: never more confirmations than there is capacity, and no
-    status other than 201 or 409. Seeded capacity is two service bays and two technicians.
+    Seeded capacity is two service bays and two technicians, so the expected result is
+    exactly two 201 responses and the rest 409.
 
-    It does NOT require capacity to be fully used. The service picks one candidate bay and
-    technician and does not retry, so under tight concurrency every caller can choose the
-    same pair and all but one lose. That is under-use, not over-booking. Closing it is the
-    contention work; this script reports it rather than failing on it.
+    The dealership-day advisory lock makes this deterministic. Every caller reads committed
+    state under the lock, so capacity is fully used and never exceeded. A 503 means the wait
+    for the lock exceeded lock_timeout, which is a load signal rather than a capacity answer.
 
 .EXAMPLE
     ./scripts/burst.ps1 -Count 20
@@ -54,26 +53,25 @@ $results = 1..$Count | ForEach-Object -ThrottleLimit $Count -Parallel {
 
 $created  = ($results | Where-Object { $_ -eq 201 }).Count
 $conflict = ($results | Where-Object { $_ -eq 409 }).Count
-$other    = ($results | Where-Object { $_ -ne 201 -and $_ -ne 409 }).Count
+$busy     = ($results | Where-Object { $_ -eq 503 }).Count
+$other    = ($results | Where-Object { $_ -notin 201, 409, 503 }).Count
 
 Write-Host ""
 Write-Host "  201 Created  : $created"  -ForegroundColor Green
 Write-Host "  409 Conflict : $conflict" -ForegroundColor Yellow
+if ($busy  -gt 0) { Write-Host "  503 Busy     : $busy"  -ForegroundColor DarkYellow }
 if ($other -gt 0) { Write-Host "  other        : $other" -ForegroundColor Red }
 Write-Host ""
 
-$safe = ($created -le $Capacity) -and ($created -ge 1) -and ($other -eq 0)
-
-if (-not $safe) {
-    Write-Host "FAIL - expected between 1 and $Capacity confirmations and no other status." -ForegroundColor Red
+if ($created -ne $Capacity -or $other -gt 0) {
+    Write-Host "FAIL - expected exactly $Capacity confirmations and no unexpected status." -ForegroundColor Red
     exit 1
 }
 
-Write-Host "PASS - no over-booking ($created of $Capacity capacity confirmed)." -ForegroundColor Green
+Write-Host "PASS - capacity honoured exactly ($created of $Capacity)." -ForegroundColor Green
 
-if ($created -lt $Capacity) {
+if ($busy -gt 0) {
     Write-Host ""
-    Write-Host "NOTE: capacity under-used. Every caller picked the same bay and technician," -ForegroundColor DarkYellow
-    Write-Host "      and the losers were rejected although another pair was free. Retrying" -ForegroundColor DarkYellow
-    Write-Host "      across candidates is the next piece of work." -ForegroundColor DarkYellow
+    Write-Host "NOTE: $busy request(s) timed out waiting for the dealership-day lock." -ForegroundColor DarkYellow
+    Write-Host "      Correct behaviour under load, but worth watching if it grows." -ForegroundColor DarkYellow
 }

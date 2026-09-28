@@ -11,6 +11,9 @@ public class BookingService(SchedulerDbContext db, IServiceContext serviceContex
     /// <summary>PostgreSQL <c>exclusion_violation</c>: an overlap constraint rejected the row.</summary>
     private const string ExclusionViolation = "23P01";
 
+    /// <summary>PostgreSQL <c>lock_not_available</c>: <c>lock_timeout</c> elapsed while waiting.</summary>
+    private const string LockNotAvailable = "55P03";
+
     public async Task<Result<AvailabilityResponse>> GetAvailabilityAsync(
         int serviceTypeId,
         DateOnly date,
@@ -97,6 +100,12 @@ public class BookingService(SchedulerDbContext db, IServiceContext serviceContex
         if (startAt < DateTime.UtcNow)
             return Result<BookingConfirmation>.Fail(BookingError.DateInPast);
 
+        // Also keeps every window inside one calendar day, which is what lets the booking
+        // take a single dealership-day lock. A window crossing midnight would need two
+        // locks and a strict ordering between them to stay deadlock-free.
+        if (!WithinBusinessDay(startAt, endAt))
+            return Result<BookingConfirmation>.Fail(BookingError.OutsideBusinessHours);
+
         var vehicle = await db.Vehicles
             .AsNoTracking()
             .FirstOrDefaultAsync(v => v.Id == command.VehicleId, ct);
@@ -116,17 +125,33 @@ public class BookingService(SchedulerDbContext db, IServiceContext serviceContex
         if (dealership is null)
             return Result<BookingConfirmation>.Fail(BookingError.DealershipNotFound);
 
-        // Read-then-insert with no lock. Two concurrent callers can both pass this
-        // check; the exclusion constraints in the database settle it, and the loser
-        // surfaces as NoCapacity below.
-        var booked = await db.Appointments
-            .AsNoTracking()
-            .Where(a => a.Status == AppointmentStatus.Confirmed
-                        && a.DealershipId == dealership.Id
-                        && a.StartAt < endAt
-                        && a.EndAt > startAt)
-            .Select(a => new BusyInterval(a.ServiceBayId, a.TechnicianId, a.StartAt, a.EndAt))
-            .ToListAsync(ct);
+        // Read #1 - unlocked, and never used to choose anything. Its only job is to keep
+        // doomed requests out of the lock queue: when a dealership is already full, the
+        // callers who cannot win return here instead of serialising behind the lock just
+        // to be told the same thing.
+        //
+        // The two staleness directions are not symmetric. A stale "free" costs one wasted
+        // lock acquisition, because read #2 then tells the truth. A stale "full" returns
+        // NoCapacity while a slot exists, which needs a cancellation to land inside this
+        // microsecond window; the caller sees the slot on their next availability query.
+        var precheck = await LoadBusyAsync(dealership.Id, startAt, endAt, ct);
+
+        if (!HasCapacity(dealership, precheck))
+            return Result<BookingConfirmation>.Fail(BookingError.NoCapacity);
+
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+
+        try
+        {
+            await AcquireDayLockAsync(dealership.Id, startAt, ct);
+        }
+        catch (PostgresException ex) when (ex.SqlState == LockNotAvailable)
+        {
+            return Result<BookingConfirmation>.Fail(BookingError.Busy);
+        }
+
+        // Read #2 - under the lock, and the only read the booking decision rests on.
+        var booked = await LoadBusyAsync(dealership.Id, startAt, endAt, ct);
 
         var bay = dealership.ServiceBays
             .FirstOrDefault(b => !booked.Any(x => x.ServiceBayId == b.Id));
@@ -159,9 +184,13 @@ public class BookingService(SchedulerDbContext db, IServiceContext serviceContex
         }
         catch (DbUpdateException ex) when (IsOverlapRejection(ex))
         {
+            // Unreachable for callers that take the lock. Still handled, because the
+            // constraints also police writers that bypass this service entirely.
             db.Entry(appointment).State = EntityState.Detached;
             return Result<BookingConfirmation>.Fail(BookingError.NoCapacity);
         }
+
+        await transaction.CommitAsync(ct);   // releases the advisory lock
 
         return Result<BookingConfirmation>.Ok(new BookingConfirmation(
             appointment.Id,
@@ -173,6 +202,47 @@ public class BookingService(SchedulerDbContext db, IServiceContext serviceContex
             appointment.StartAt,
             appointment.EndAt));
     }
+
+    /// <summary>
+    /// Serialises bookings for one dealership on one date. The two-integer form of
+    /// <c>pg_advisory_xact_lock</c> avoids hashing a composite key, so distinct
+    /// dealership-days can never collide onto one lock.
+    ///
+    /// The <c>xact</c> variant releases on commit or rollback. The session-scoped variant
+    /// would outlive the transaction and return to the connection pool still held.
+    /// </summary>
+    private async Task AcquireDayLockAsync(int dealershipId, DateTime startAt, CancellationToken ct)
+    {
+        var dayNumber = DateOnly.FromDateTime(startAt).DayNumber;
+
+        // SET LOCAL reverts at the end of this transaction, so it cannot leak to whoever
+        // borrows this pooled connection next.
+        await db.Database.ExecuteSqlRawAsync(
+            $"SET LOCAL lock_timeout = '{SchedulingConstants.BookingLockTimeout}'; "
+            + "SELECT pg_advisory_xact_lock({0}, {1});",
+            [dealershipId, dayNumber],
+            ct);
+    }
+
+    private Task<List<BusyInterval>> LoadBusyAsync(
+        int dealershipId, DateTime startAt, DateTime endAt, CancellationToken ct) =>
+        db.Appointments
+            .AsNoTracking()
+            .Where(a => a.Status == AppointmentStatus.Confirmed
+                        && a.DealershipId == dealershipId
+                        && a.StartAt < endAt
+                        && a.EndAt > startAt)
+            .Select(a => new BusyInterval(a.ServiceBayId, a.TechnicianId, a.StartAt, a.EndAt))
+            .ToListAsync(ct);
+
+    private static bool HasCapacity(Dealership dealership, List<BusyInterval> booked) =>
+        dealership.ServiceBays.Any(b => !booked.Any(x => x.ServiceBayId == b.Id))
+        && dealership.Technicians.Any(t => !booked.Any(x => x.TechnicianId == t.Id));
+
+    private static bool WithinBusinessDay(DateTime startAt, DateTime endAt) =>
+        DateOnly.FromDateTime(startAt) == DateOnly.FromDateTime(endAt.AddTicks(-1))
+        && TimeOnly.FromDateTime(startAt) >= SchedulingConstants.BusinessDayStart
+        && TimeOnly.FromDateTime(endAt.AddTicks(-1)) < SchedulingConstants.BusinessDayEnd;
 
     private static bool IsOverlapRejection(DbUpdateException ex) =>
         ex.InnerException is PostgresException { SqlState: ExclusionViolation };

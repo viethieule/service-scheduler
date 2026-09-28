@@ -14,9 +14,21 @@ public enum BookingError
     DateInPast,
 
     /// <summary>
+    /// The requested window does not lie entirely within the business day.
+    /// </summary>
+    OutsideBusinessHours,
+
+    /// <summary>
     /// No service bay or no technician was free for the whole requested window.
     /// </summary>
-    NoCapacity
+    NoCapacity,
+
+    /// <summary>
+    /// The dealership's schedule was locked by another booking for longer than the wait
+    /// allows. Distinct from <see cref="NoCapacity"/>: capacity was never determined, so
+    /// the caller should retry rather than be told there is none.
+    /// </summary>
+    Busy
 }
 
 /// <summary>

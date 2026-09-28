@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using ServiceScheduler.API.Endpoints;
+using ServiceScheduler.API.OpenApi;
 using ServiceScheduler.API.ServiceContext;
 using ServiceScheduler.Data;
 using ServiceScheduler.Services.Booking;
@@ -16,7 +17,13 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<IServiceContext, HeaderServiceContext>();
 builder.Services.AddScoped<IBookingService, BookingService>();
 
-builder.Services.AddOpenApi();
+// Swagger UI speaks OpenAPI 3.0, and cannot render the "integer or string" union that
+// .NET 10 gives a simple query parameter. See FlattenScalarUnionsTransformer.
+builder.Services.AddOpenApi(options =>
+{
+    options.OpenApiVersion = Microsoft.OpenApi.OpenApiSpecVersion.OpenApi3_0;
+    options.AddSchemaTransformer<FlattenScalarUnionsTransformer>();
+});
 builder.Services.AddProblemDetails();
 
 var app = builder.Build();

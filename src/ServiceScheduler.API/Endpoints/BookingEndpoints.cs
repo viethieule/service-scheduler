@@ -45,7 +45,8 @@ public static class BookingEndpoints
                 "and technician.")
             .Produces<BookingConfirmation>(StatusCodes.Status201Created)
             .ProducesProblem(StatusCodes.Status409Conflict)
-            .ProducesProblem(StatusCodes.Status422UnprocessableEntity);
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
         return app;
     }
@@ -56,6 +57,13 @@ public static class BookingEndpoints
             title: "No capacity",
             detail: "No service bay or technician is free for the whole duration.",
             statusCode: StatusCodes.Status409Conflict),
+
+        // Capacity was never determined, so telling the caller there is none would be
+        // wrong, and would hide a load problem from us.
+        BookingError.Busy => Results.Problem(
+            title: "Dealership schedule is busy",
+            detail: "The schedule was locked by another booking. Retry shortly.",
+            statusCode: StatusCodes.Status503ServiceUnavailable),
 
         _ => Results.Problem(
             title: "Request cannot be processed",

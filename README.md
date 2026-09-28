@@ -48,7 +48,7 @@ POST /bookings
 ```
 
 `201` on confirmation, `409` when no bay or technician is free for the whole duration,
-`422` for anything else.
+`503` when the dealership-day lock could not be acquired in time, `422` for anything else.
 
 ## Verifying the invariant
 
@@ -58,15 +58,15 @@ dotnet test
 ```
 
 Two service bays and two technicians are seeded, so a burst of concurrent bookings at one
-start time must never produce **more than two** confirmations. Everything else is `409`.
+start time produces **exactly two** confirmations. Everything else is `409`. This is
+deterministic, not a race won by luck.
 
-It may produce fewer. Assignment picks one candidate bay and technician and does not retry,
-so under tight concurrency every caller can choose the same pair and all but one lose, even
-though the other pair was free. That is capacity under-use, not over-booking — the safety
-property holds either way. Closing the gap is the next piece of work.
+Two mechanisms make it so, at different levels.
 
-The guarantee is not in application code. It is two PostgreSQL exclusion constraints created
-in the initial migration:
+### The floor: exclusion constraints
+
+Correctness does not depend on application code. It is two PostgreSQL exclusion constraints
+created in the initial migration:
 
 ```sql
 ALTER TABLE appointments
@@ -81,7 +81,36 @@ with a second, identical constraint on `service_bay_id`. They are separate on pu
 combined constraint would only reject rows matching on *both* resources, which would let the
 same technician be booked twice in different bays.
 
-Check directly — this must return zero:
+### Above it: a dealership-day advisory lock
+
+The constraints keep the data correct but reject the loser of a race, even when another bay
+was free — so capacity went unused. `CreateBookingAsync` now serialises bookings per
+dealership per date:
+
+```sql
+SET LOCAL lock_timeout = '2s';
+SELECT pg_advisory_xact_lock(:dealership_id, :day_number);
+```
+
+Held to commit, released automatically. Under it the availability re-read sees committed
+state, so the choice of bay and technician is made on the truth.
+
+Three details carry the design:
+
+- **An unlocked read runs first.** It never chooses anything; it only decides whether to join
+  the lock queue at all. When a dealership is full, the callers who cannot win return `409`
+  without serialising behind the lock. That stops a hot dealership queueing thousands of
+  doomed requests and exhausting the connection pool.
+- **`lock_timeout` bounds the wait.** Exceeding it yields `503`, not `409` — capacity was
+  never determined, so reporting "no capacity" would be a lie that also hides load.
+- **Bookings must fit inside the business day.** That keeps every window inside one calendar
+  date, which is what lets a booking take a single lock. A window crossing midnight would
+  need two, plus a strict ordering between them to stay deadlock-free.
+
+The constraints remain mandatory: the lock protects only callers that take it, while the
+constraints also police migrations, admin tools and anything else writing to `appointments`.
+
+Check the invariant directly — this must return zero:
 
 ```sql
 SELECT count(*) FROM appointments a
@@ -108,5 +137,5 @@ SQLite has neither `gist` nor `EXCLUDE`.
 
 ## Not yet implemented
 
-Authentication, retrying assignment across candidate resources, locking strategies above the constraint, `GET /bookings/{id}`,
+Authentication, per-resource locking for hot dealerships, admission control, `GET /bookings/{id}`,
 cancellation, opening hours, technician certification, timezones, idempotency, metrics.
