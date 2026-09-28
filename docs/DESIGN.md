@@ -266,27 +266,75 @@ that actually upholds NFR 5.1. Only the second is trusted.
 I used Claude throughout the design phase, and it is worth being specific about how, because
 "AI-assisted" on its own says nothing.
 
-It was useful in two roles. The first was as a sounding board on domain knowledge I did not
-already hold in detail — dealership servicing workflows, and in particular the PostgreSQL
-mechanics of enforcing a no-overlap invariant. The `EXCLUDE` constraint with `btree_gist` came
-out of that conversation, as did two details I would have been slow to reach alone: that the
-invariant needs two separate constraints rather than one, since a combined constraint only
-rejects rows matching on both bay *and* technician and would let a technician be booked twice
-in different bays; and that the range must be half-open so back-to-back appointments do not
-falsely collide. The second role was drafting — turning a decision I had already made into
-prose, a migration or a test.
+### Filling the gaps the brief left open
 
-Every structural decision here is mine. Dealership-as-tenant and customer-owned vehicles were
-chosen after I worked through who plausibly owns each piece of data. The collapse from two
-services to one came from my noticing that the Resource Service had nothing left to own once
-availability returned dealership identity inline. Integer identity keys, four projects, clean
-architecture with an explicit exception for persistence, and EF Core as the unit of work were
-all specified by me.
+The brief gave three functional requirements and five non-functional ones. It said nothing
+about where resource data lives, where vehicles come from, how long a service takes, what
+makes a technician qualified, when a dealership is open, or how finely time is divided. Every
+one of those has to be decided before a single line can be written, and none of them is
+derivable from the requirements.
 
-The pattern I held to most consistently was cutting scope. The model's instinct is a richer
-domain model than the requirements need, and I repeatedly removed things: operating hours,
-technician shifts and certifications, `is_active` flags, per-dealership timezones and
-daylight-saving handling. `ServiceType` went the other way, from entity to enum and back, but
-only once duration gave it a reason to exist. I also edited this document by hand to simplify
-it and then had the model reconcile the cross-references it had left dangling. The README's
-*AI Collaboration Narrative* covers the verification side in more detail.
+I used the model as a domain sounding board to make those calls deliberately rather than by
+accident. The pattern each time was the same: state my conjecture, ask what a real system in
+this domain does, then decide.
+
+| The brief did not say | What I assumed | Why |
+| --- | --- | --- |
+| Who owns bay and technician data | The dealership is a tenant of this system and owns it here | Real dealership schedules live in a DMS, whose interfaces are slow, often batch, and non-transactional. A slot cannot be atomically claimed in one, so a federated availability check on the request path is not viable |
+| Where vehicles come from | Customer-owned and pre-registered, referenced by id | A vehicle belongs to its owner, not a dealership, and the VIN is its identity. VIN decoding is a separate concern |
+| How long a service takes | `ServiceType` carries `duration_minutes` | FR 2 requires the whole duration to be free, so duration must be data, not a constant |
+| What "qualified" means | Initially a certification set on the technician; later dropped | FR 2 says "qualified Technician", but modelling it added a join table that earned nothing for the concurrency problem this exercise is about |
+| Dealership opening hours | A fixed `BUSINESS_DAY` of 08:00-18:00 UTC | Without any bound the candidate grid runs midnight to midnight and offers 03:00 appointments. A placeholder constant is honest; per-dealership hours are out of scope (NFR 5.3) |
+| How finely time is divided | A 30-minute grid | It is the knob trading UX precision against contention, so it needs a stated value rather than an accidental one |
+| Whether the customer picks the dealership or discovers it | Discovers it: service type and date are inputs, dealerships are results | FR 1 names a dealership in the *booking*, which is still true; how the customer arrived at it is a browse concern |
+| Who the caller is | `IServiceContext`, stubbed from a header | Authentication is out of scope, but the booking still needs an owner to check the vehicle against |
+
+Two of those I later reversed on purpose. Technician certifications went out because they made
+the model larger without making the interesting problem harder. Timezones went out because,
+with contention scoped to one dealership, every timestamp being compared shares a zone, so
+naive local times would compare correctly anyway — but I kept UTC storage, because that is a
+column type decision that is expensive to retrofit and free to get right now.
+
+### How the exchange actually went
+
+Not one prompt and one answer. Each decision took several rounds, and the useful ones were
+where I pushed back.
+
+On the domain, I started by putting two conjectures to it and asking which was realistic,
+rather than asking it to design anything. On availability, I proposed returning dealerships
+with their free bays and technicians; it argued resources should never be exposed to a
+customer, and I took that but kept my inversion of dealership from input to output. On the
+service split, I asked whether the availability endpoint belonged in the read service and was
+told no, then noticed myself that the read service now had nothing left to own — which the
+model had not raised. On REST, I asked whether `/availability` was compliant, which surfaced a
+`201` with no `Location` header pointing at an endpoint that does not exist; I deferred that
+knowingly rather than take the fix.
+
+The most consistent pattern was cutting. The model's instinct is a richer domain model than
+the requirements need, and the design shrank at almost every step: operating hours, technician
+shifts, certifications, `is_active` flags, per-dealership timezones. I also edited this
+document by hand to simplify it, then had the model reconcile the seven cross-references it
+had left dangling.
+
+### Design-phase question log
+
+A condensed record of what I asked and what changed as a result.
+
+| I asked | Outcome |
+| --- | --- |
+| Does the system store dealership bays and technicians, or call the dealership's own APIs? | Dealership-as-tenant. Federated availability rejected: DMS interfaces cannot hold a slot |
+| Does the vehicle belong to the dealership or the customer? | Customer-owned, VIN as identity, dealership link is non-exclusive |
+| What is a realistic booking flow — does the customer type the vehicle in? | Selected from a garage; VIN or plate entry only as fallback |
+| What is the simplest workable assumption for vehicles? | Vehicle as a first-class row, referenced by id. Raw VIN entry gives a string with no attributes to check qualification against |
+| Review my four non-functional requirements | Availability correctness merged into consistency; idempotency, fail-closed, clock injection and audit trail proposed, and I put them out of scope |
+| Is read scalability the right third NFR here? | Yes — reads outnumber writes heavily and each availability query is an expensive interval search |
+| What are `DealershipOperatingHours` and `TechnicianShift` for? | They bound FR 2's "entire duration" check; absence of a booking is not availability |
+| Should I remove them and put timezones out of scope? | Agreed, with UTC storage kept as a convention rather than a requirement |
+| Can the customer pick only service type and date, and get dealerships back? | Yes for dealerships as output; no for exposing bays and technicians, which would promise a specific pair |
+| Does the read service become redundant then? | Yes — mis-stocked rather than redundant; its endpoints were swapped, and it was later folded in entirely |
+| Is `/availability` REST-compliant on the booking resource? | Compliant as a derived collection. Surfaced the missing `Location` header, deferred |
+| Is `/dealerships/{id}/availability` served by the read service? | No. Ownership follows the data read, not the URL shape |
+| What did the model's cleanup leave broken after I edited the document? | Seven dangling cross-references, found and fixed |
+
+Every structural decision recorded above is mine. The README's *AI Collaboration Narrative*
+covers the implementation phase and the verification side.
