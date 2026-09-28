@@ -34,10 +34,14 @@ public class BookingService(
         var duration = TimeSpan.FromMinutes(serviceType.DurationMinutes);
         var (dayStart, dayEnd) = BusinessDay(date);
 
+        // Two collection Includes in one query would cross-join bays against technicians,
+        // returning bays x technicians rows per dealership. AsSplitQuery issues one query
+        // per collection instead.
         var dealerships = await db.Dealerships
             .AsNoTracking()
             .Include(d => d.ServiceBays)
             .Include(d => d.Technicians)
+            .AsSplitQuery()
             .OrderBy(d => d.Name)
             .ToListAsync(ct);
 
@@ -125,6 +129,7 @@ public class BookingService(
             .AsNoTracking()
             .Include(d => d.ServiceBays)
             .Include(d => d.Technicians)
+            .AsSplitQuery()
             .FirstOrDefaultAsync(d => d.Id == command.DealershipId, ct);
 
         if (dealership is null)
