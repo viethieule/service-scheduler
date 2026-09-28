@@ -135,10 +135,11 @@ public class BookingService(
         if (dealership is null)
             return Result<BookingConfirmation>.Fail(BookingError.DealershipNotFound);
 
-        // Read #1 - unlocked, and never used to choose anything. Its only job is to keep
-        // doomed requests out of the lock queue: when a dealership is already full, the
-        // callers who cannot win return here instead of serialising behind the lock just
-        // to be told the same thing.
+        // Read #1 - outside the critical section, and never used to choose anything. Like
+        // read #2 it is an ordinary MVCC read taking no row locks; what differs is that it
+        // runs before the advisory lock is held. Its only job is to keep doomed requests
+        // out of the lock queue: when a dealership is already full, the callers who cannot
+        // win return here instead of serialising behind the lock to be told the same thing.
         //
         // The two staleness directions are not symmetric. A stale "free" costs one wasted
         // lock acquisition, because read #2 then tells the truth. A stale "full" returns
@@ -171,7 +172,9 @@ public class BookingService(
             return Result<BookingConfirmation>.Fail(BookingError.Busy);
         }
 
-        // Read #2 - under the lock, and the only read the booking decision rests on.
+        // Read #2 - inside the critical section, and the only read the booking decision
+        // rests on. It is no different as a query; it is trustworthy because the advisory
+        // lock means no other caller can commit between it and the insert below.
         var booked = await LoadBusyAsync(dealership.Id, startAt, endAt, ct);
 
         var bay = dealership.ServiceBays

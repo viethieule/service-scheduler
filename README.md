@@ -97,10 +97,13 @@ state, so the choice of bay and technician is made on the truth.
 
 Three details carry the design:
 
-- **An unlocked read runs first.** It never chooses anything; it only decides whether to join
-  the lock queue at all. When a dealership is full, the callers who cannot win return `409`
-  without serialising behind the lock. That stops a hot dealership queueing thousands of
-  doomed requests and exhausting the connection pool.
+- **A pre-check read runs outside the critical section.** It never chooses anything; it only
+  decides whether to join the lock queue at all. When a dealership is full, the callers who
+  cannot win return `409` without serialising behind the lock. That stops a hot dealership
+  queueing thousands of doomed requests and exhausting the connection pool. Both reads are
+  ordinary MVCC reads taking no row locks — what separates them is whether the advisory lock
+  is held, not how they read. The second is trustworthy because nothing else can commit
+  between it and the insert.
 - **`lock_timeout` bounds the wait.** Exceeding it yields `503`, not `409` — capacity was
   never determined, so reporting "no capacity" would be a lie that also hides load.
 - **Bookings must fit inside the business day.** That keeps every window inside one calendar
@@ -189,7 +192,7 @@ It proposed the `EXCLUDE` constraint approach, including the detail that two sep
 are required — one combined constraint only rejects rows matching on both bay and technician,
 which would leave a technician bookable twice in different bays. It proposed the half-open `'[)'`
 range so back-to-back appointments do not falsely collide, and the partial `WHERE (status = 1)` so
-a cancellation frees its slot. It proposed the unlocked pre-check in front of the advisory lock,
+a cancellation frees its slot. It proposed the pre-check read in front of the advisory lock,
 after I raised the hot-dealership bottleneck. And it caught that `POST /bookings` accepted start
 times outside the business day, which would cross midnight and break the
 single-lock-per-transaction assumption. Those are real contributions and I am not going to
