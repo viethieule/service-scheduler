@@ -61,7 +61,19 @@ Two service bays and two technicians are seeded, so a burst of concurrent bookin
 start time produces **exactly two** confirmations. Everything else is `409`. This is
 deterministic, not a race won by luck.
 
-Two mechanisms make it so, at different levels.
+Pass a different `-StartAt` on each run. The default slot is the same all day, so a second
+run against it finds the capacity already taken and reports `0 x 201` — the slot is used, not
+the lock broken. The start must be in the future and the service must finish by 18:00 UTC, so
+16:00 is the latest valid start for the 120-minute brake service the script books by default.
+
+```powershell
+1..5 | ForEach-Object {
+  $d = (Get-Date).ToUniversalTime().Date.AddDays(300 + $_).AddHours(9).ToString('yyyy-MM-ddTHH:mm:ssZ')
+  ./scripts/burst.ps1 -Count 25 -StartAt $d
+}
+```
+
+Two mechanisms make the result deterministic, at different levels.
 
 ### The floor: exclusion constraints
 
