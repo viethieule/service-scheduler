@@ -116,10 +116,6 @@
         {
           "id": "a2",
           "type": "arrow"
-        },
-        {
-          "id": "a3",
-          "type": "arrow"
         }
       ],
       "updated": 1,
@@ -165,7 +161,7 @@
     {
       "id": "bk",
       "type": "rectangle",
-      "x": 60,
+      "x": 265,
       "y": 370,
       "width": 320,
       "height": 120,
@@ -207,8 +203,8 @@
     {
       "id": "bk_t",
       "type": "text",
-      "x": 70,
-      "y": 390,
+      "x": 275,
+      "y": 400,
       "width": 300,
       "height": 80,
       "angle": 0,
@@ -241,87 +237,9 @@
       "autoResize": true
     },
     {
-      "id": "rs",
-      "type": "rectangle",
-      "x": 460,
-      "y": 370,
-      "width": 340,
-      "height": 120,
-      "angle": 0,
-      "strokeColor": "#1e1e1e",
-      "backgroundColor": "#b2f2bb",
-      "fillStyle": "solid",
-      "strokeWidth": 2,
-      "strokeStyle": "solid",
-      "roughness": 1,
-      "opacity": 100,
-      "groupIds": [],
-      "frameId": null,
-      "roundness": {
-        "type": 3
-      },
-      "seed": 107,
-      "version": 1,
-      "versionNonce": 107,
-      "isDeleted": false,
-      "boundElements": [
-        {
-          "id": "rs_t",
-          "type": "text"
-        },
-        {
-          "id": "a3",
-          "type": "arrow"
-        },
-        {
-          "id": "a5",
-          "type": "arrow"
-        }
-      ],
-      "updated": 1,
-      "link": null,
-      "locked": false
-    },
-    {
-      "id": "rs_t",
-      "type": "text",
-      "x": 470,
-      "y": 400,
-      "width": 320,
-      "height": 60,
-      "angle": 0,
-      "strokeColor": "#1e1e1e",
-      "backgroundColor": "transparent",
-      "fillStyle": "solid",
-      "strokeWidth": 2,
-      "strokeStyle": "solid",
-      "roughness": 1,
-      "opacity": 100,
-      "groupIds": [],
-      "frameId": null,
-      "roundness": null,
-      "seed": 108,
-      "version": 1,
-      "versionNonce": 108,
-      "isDeleted": false,
-      "boundElements": [],
-      "updated": 1,
-      "link": null,
-      "locked": false,
-      "text": "Resource Service\n\nGET /dealerships",
-      "fontSize": 16,
-      "fontFamily": 1,
-      "textAlign": "center",
-      "verticalAlign": "middle",
-      "containerId": "rs",
-      "originalText": "Resource Service\n\nGET /dealerships",
-      "lineHeight": 1.25,
-      "autoResize": true
-    },
-    {
       "id": "db",
       "type": "rectangle",
-      "x": 280,
+      "x": 275,
       "y": 650,
       "width": 300,
       "height": 90,
@@ -350,10 +268,6 @@
         {
           "id": "a4",
           "type": "arrow"
-        },
-        {
-          "id": "a5",
-          "type": "arrow"
         }
       ],
       "updated": 1,
@@ -363,7 +277,7 @@
     {
       "id": "db_t",
       "type": "text",
-      "x": 290,
+      "x": 285,
       "y": 675,
       "width": 280,
       "height": 40,
@@ -451,9 +365,9 @@
     {
       "id": "a2",
       "type": "arrow",
-      "x": 350,
+      "x": 425,
       "y": 288,
-      "width": 110,
+      "width": 0,
       "height": 74,
       "angle": 0,
       "strokeColor": "#1e1e1e",
@@ -482,7 +396,7 @@
           0
         ],
         [
-          -110,
+          0,
           74
         ]
       ],
@@ -501,63 +415,11 @@
       "endArrowhead": "arrow"
     },
     {
-      "id": "a3",
-      "type": "arrow",
-      "x": 500,
-      "y": 288,
-      "width": 110,
-      "height": 74,
-      "angle": 0,
-      "strokeColor": "#1e1e1e",
-      "backgroundColor": "transparent",
-      "fillStyle": "solid",
-      "strokeWidth": 2,
-      "strokeStyle": "solid",
-      "roughness": 1,
-      "opacity": 100,
-      "groupIds": [],
-      "frameId": null,
-      "roundness": {
-        "type": 2
-      },
-      "seed": 203,
-      "version": 1,
-      "versionNonce": 203,
-      "isDeleted": false,
-      "boundElements": [],
-      "updated": 1,
-      "link": null,
-      "locked": false,
-      "points": [
-        [
-          0,
-          0
-        ],
-        [
-          110,
-          74
-        ]
-      ],
-      "lastCommittedPoint": null,
-      "startBinding": {
-        "elementId": "gw",
-        "focus": 0,
-        "gap": 8
-      },
-      "endBinding": {
-        "elementId": "rs",
-        "focus": 0,
-        "gap": 8
-      },
-      "startArrowhead": null,
-      "endArrowhead": "arrow"
-    },
-    {
       "id": "a4",
       "type": "arrow",
-      "x": 245,
+      "x": 425,
       "y": 498,
-      "width": 115,
+      "width": 0,
       "height": 144,
       "angle": 0,
       "strokeColor": "#1e1e1e",
@@ -586,65 +448,13 @@
           0
         ],
         [
-          115,
+          0,
           144
         ]
       ],
       "lastCommittedPoint": null,
       "startBinding": {
         "elementId": "bk",
-        "focus": 0,
-        "gap": 8
-      },
-      "endBinding": {
-        "elementId": "db",
-        "focus": 0,
-        "gap": 8
-      },
-      "startArrowhead": null,
-      "endArrowhead": "arrow"
-    },
-    {
-      "id": "a5",
-      "type": "arrow",
-      "x": 615,
-      "y": 498,
-      "width": 115,
-      "height": 144,
-      "angle": 0,
-      "strokeColor": "#1e1e1e",
-      "backgroundColor": "transparent",
-      "fillStyle": "solid",
-      "strokeWidth": 2,
-      "strokeStyle": "solid",
-      "roughness": 1,
-      "opacity": 100,
-      "groupIds": [],
-      "frameId": null,
-      "roundness": {
-        "type": 2
-      },
-      "seed": 205,
-      "version": 1,
-      "versionNonce": 205,
-      "isDeleted": false,
-      "boundElements": [],
-      "updated": 1,
-      "link": null,
-      "locked": false,
-      "points": [
-        [
-          0,
-          0
-        ],
-        [
-          -115,
-          144
-        ]
-      ],
-      "lastCommittedPoint": null,
-      "startBinding": {
-        "elementId": "rs",
         "focus": 0,
         "gap": 8
       },
