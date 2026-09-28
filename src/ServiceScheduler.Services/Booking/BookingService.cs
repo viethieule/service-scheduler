@@ -12,7 +12,7 @@ public class BookingService(SchedulerDbContext db, IServiceContext serviceContex
     private const string ExclusionViolation = "23P01";
 
     public async Task<Result<AvailabilityResponse>> GetAvailabilityAsync(
-        Guid serviceTypeId,
+        int serviceTypeId,
         DateOnly date,
         CancellationToken ct = default)
     {
@@ -139,7 +139,6 @@ public class BookingService(SchedulerDbContext db, IServiceContext serviceContex
 
         var appointment = new Appointment
         {
-            Id = Guid.CreateVersion7(),
             DealershipId = dealership.Id,
             CustomerId = serviceContext.CustomerId,
             VehicleId = vehicle.Id,
@@ -195,8 +194,8 @@ public class BookingService(SchedulerDbContext db, IServiceContext serviceContex
     };
 
     private readonly record struct BusyInterval(
-        Guid ServiceBayId,
-        Guid TechnicianId,
+        int ServiceBayId,
+        int TechnicianId,
         DateTime StartAt,
         DateTime EndAt)
     {

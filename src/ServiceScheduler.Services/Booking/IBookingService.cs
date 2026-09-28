@@ -10,7 +10,7 @@ public interface IBookingService
     /// caller acts on it.
     /// </summary>
     Task<Result<AvailabilityResponse>> GetAvailabilityAsync(
-        Guid serviceTypeId,
+        int serviceTypeId,
         DateOnly date,
         CancellationToken ct = default);
 

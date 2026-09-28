@@ -2,7 +2,7 @@ namespace ServiceScheduler.Data.Entities;
 
 public class Dealership
 {
-    public Guid Id { get; set; }
+    public int Id { get; set; }
     public string Name { get; set; } = string.Empty;
     public string Address { get; set; } = string.Empty;
 
@@ -12,8 +12,8 @@ public class Dealership
 
 public class ServiceBay
 {
-    public Guid Id { get; set; }
-    public Guid DealershipId { get; set; }
+    public int Id { get; set; }
+    public int DealershipId { get; set; }
     public string Name { get; set; } = string.Empty;
 
     public Dealership? Dealership { get; set; }
@@ -21,8 +21,8 @@ public class ServiceBay
 
 public class Technician
 {
-    public Guid Id { get; set; }
-    public Guid DealershipId { get; set; }
+    public int Id { get; set; }
+    public int DealershipId { get; set; }
     public string Name { get; set; } = string.Empty;
 
     public Dealership? Dealership { get; set; }
@@ -30,14 +30,14 @@ public class Technician
 
 public class ServiceType
 {
-    public Guid Id { get; set; }
+    public int Id { get; set; }
     public string Name { get; set; } = string.Empty;
     public int DurationMinutes { get; set; }
 }
 
 public class Customer
 {
-    public Guid Id { get; set; }
+    public int Id { get; set; }
     public string Name { get; set; } = string.Empty;
     public string Email { get; set; } = string.Empty;
     public string Phone { get; set; } = string.Empty;
@@ -45,8 +45,8 @@ public class Customer
 
 public class Vehicle
 {
-    public Guid Id { get; set; }
-    public Guid CustomerId { get; set; }
+    public int Id { get; set; }
+    public int CustomerId { get; set; }
     public string Vin { get; set; } = string.Empty;
     public string Make { get; set; } = string.Empty;
     public string Model { get; set; } = string.Empty;
@@ -68,13 +68,13 @@ public enum AppointmentStatus
 
 public class Appointment
 {
-    public Guid Id { get; set; }
-    public Guid DealershipId { get; set; }
-    public Guid CustomerId { get; set; }
-    public Guid VehicleId { get; set; }
-    public Guid ServiceTypeId { get; set; }
-    public Guid TechnicianId { get; set; }
-    public Guid ServiceBayId { get; set; }
+    public int Id { get; set; }
+    public int DealershipId { get; set; }
+    public int CustomerId { get; set; }
+    public int VehicleId { get; set; }
+    public int ServiceTypeId { get; set; }
+    public int TechnicianId { get; set; }
+    public int ServiceBayId { get; set; }
 
     /// <summary>Inclusive start, UTC.</summary>
     public DateTime StartAt { get; set; }

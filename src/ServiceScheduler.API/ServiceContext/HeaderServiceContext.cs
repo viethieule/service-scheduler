@@ -10,12 +10,12 @@ namespace ServiceScheduler.API.ServiceContext;
 /// </summary>
 public sealed class HeaderServiceContext(IHttpContextAccessor accessor) : IServiceContext
 {
-    public Guid CustomerId
+    public int CustomerId
     {
         get
         {
             var header = accessor.HttpContext?.Request.Headers["X-Customer-Id"].FirstOrDefault();
-            return Guid.TryParse(header, out var id) ? id : SeedData.CustomerId;
+            return int.TryParse(header, out var id) ? id : SeedData.CustomerId;
         }
     }
 

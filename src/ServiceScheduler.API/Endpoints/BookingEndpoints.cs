@@ -8,7 +8,7 @@ public static class BookingEndpoints
     public static IEndpointRouteBuilder MapBookingEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapGet("/availability", async (
-                Guid serviceTypeId,
+                int serviceTypeId,
                 DateOnly date,
                 IBookingService bookings,
                 CancellationToken ct) =>

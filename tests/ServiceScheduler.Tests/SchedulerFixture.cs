@@ -62,9 +62,9 @@ public sealed class SchedulerFixture : IAsyncLifetime
 }
 
 /// <summary>Fixed caller identity, standing in for authentication.</summary>
-public sealed class TestServiceContext(Guid customerId) : IServiceContext
+public sealed class TestServiceContext(int customerId) : IServiceContext
 {
-    public Guid CustomerId { get; } = customerId;
+    public int CustomerId { get; } = customerId;
 
     public string CorrelationId { get; } = "test";
 }

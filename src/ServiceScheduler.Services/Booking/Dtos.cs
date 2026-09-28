@@ -1,28 +1,28 @@
 namespace ServiceScheduler.Services.Booking;
 
 public sealed record CreateBookingCommand(
-    Guid DealershipId,
-    Guid VehicleId,
-    Guid ServiceTypeId,
+    int DealershipId,
+    int VehicleId,
+    int ServiceTypeId,
     DateTime StartAt);
 
 public sealed record BookingConfirmation(
-    Guid BookingId,
-    Guid DealershipId,
-    Guid VehicleId,
-    Guid ServiceTypeId,
-    Guid TechnicianId,
-    Guid ServiceBayId,
+    int BookingId,
+    int DealershipId,
+    int VehicleId,
+    int ServiceTypeId,
+    int TechnicianId,
+    int ServiceBayId,
     DateTime StartAt,
     DateTime EndAt);
 
 public sealed record DealershipAvailability(
-    Guid DealershipId,
+    int DealershipId,
     string Name,
     IReadOnlyList<string> Slots);
 
 public sealed record AvailabilityResponse(
-    Guid ServiceTypeId,
+    int ServiceTypeId,
     int DurationMinutes,
     DateOnly Date,
     int SlotGranularityMinutes,

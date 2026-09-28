@@ -12,7 +12,7 @@ using ServiceScheduler.Data;
 namespace ServiceScheduler.Data.Migrations
 {
     [DbContext(typeof(SchedulerDbContext))]
-    [Migration("20260928082320_Initial")]
+    [Migration("20260928093546_Initial")]
     partial class Initial
     {
         /// <inheritdoc />
@@ -27,33 +27,35 @@ namespace ServiceScheduler.Data.Migrations
 
             modelBuilder.Entity("ServiceScheduler.Data.Entities.Appointment", b =>
                 {
-                    b.Property<Guid>("Id")
+                    b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
+                        .HasColumnType("integer")
                         .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamptz")
                         .HasColumnName("created_at");
 
-                    b.Property<Guid>("CustomerId")
-                        .HasColumnType("uuid")
+                    b.Property<int>("CustomerId")
+                        .HasColumnType("integer")
                         .HasColumnName("customer_id");
 
-                    b.Property<Guid>("DealershipId")
-                        .HasColumnType("uuid")
+                    b.Property<int>("DealershipId")
+                        .HasColumnType("integer")
                         .HasColumnName("dealership_id");
 
                     b.Property<DateTime>("EndAt")
                         .HasColumnType("timestamptz")
                         .HasColumnName("end_at");
 
-                    b.Property<Guid>("ServiceBayId")
-                        .HasColumnType("uuid")
+                    b.Property<int>("ServiceBayId")
+                        .HasColumnType("integer")
                         .HasColumnName("service_bay_id");
 
-                    b.Property<Guid>("ServiceTypeId")
-                        .HasColumnType("uuid")
+                    b.Property<int>("ServiceTypeId")
+                        .HasColumnType("integer")
                         .HasColumnName("service_type_id");
 
                     b.Property<DateTime>("StartAt")
@@ -64,12 +66,12 @@ namespace ServiceScheduler.Data.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("status");
 
-                    b.Property<Guid>("TechnicianId")
-                        .HasColumnType("uuid")
+                    b.Property<int>("TechnicianId")
+                        .HasColumnType("integer")
                         .HasColumnName("technician_id");
 
-                    b.Property<Guid>("VehicleId")
-                        .HasColumnType("uuid")
+                    b.Property<int>("VehicleId")
+                        .HasColumnType("integer")
                         .HasColumnName("vehicle_id");
 
                     b.HasKey("Id");
@@ -91,10 +93,12 @@ namespace ServiceScheduler.Data.Migrations
 
             modelBuilder.Entity("ServiceScheduler.Data.Entities.Customer", b =>
                 {
-                    b.Property<Guid>("Id")
+                    b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
+                        .HasColumnType("integer")
                         .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
                     b.Property<string>("Email")
                         .IsRequired()
@@ -121,10 +125,12 @@ namespace ServiceScheduler.Data.Migrations
 
             modelBuilder.Entity("ServiceScheduler.Data.Entities.Dealership", b =>
                 {
-                    b.Property<Guid>("Id")
+                    b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
+                        .HasColumnType("integer")
                         .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
                     b.Property<string>("Address")
                         .IsRequired()
@@ -145,13 +151,15 @@ namespace ServiceScheduler.Data.Migrations
 
             modelBuilder.Entity("ServiceScheduler.Data.Entities.ServiceBay", b =>
                 {
-                    b.Property<Guid>("Id")
+                    b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
+                        .HasColumnType("integer")
                         .HasColumnName("id");
 
-                    b.Property<Guid>("DealershipId")
-                        .HasColumnType("uuid")
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("DealershipId")
+                        .HasColumnType("integer")
                         .HasColumnName("dealership_id");
 
                     b.Property<string>("Name")
@@ -169,10 +177,12 @@ namespace ServiceScheduler.Data.Migrations
 
             modelBuilder.Entity("ServiceScheduler.Data.Entities.ServiceType", b =>
                 {
-                    b.Property<Guid>("Id")
+                    b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
+                        .HasColumnType("integer")
                         .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
                     b.Property<int>("DurationMinutes")
                         .HasColumnType("integer")
@@ -191,13 +201,15 @@ namespace ServiceScheduler.Data.Migrations
 
             modelBuilder.Entity("ServiceScheduler.Data.Entities.Technician", b =>
                 {
-                    b.Property<Guid>("Id")
+                    b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
+                        .HasColumnType("integer")
                         .HasColumnName("id");
 
-                    b.Property<Guid>("DealershipId")
-                        .HasColumnType("uuid")
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("DealershipId")
+                        .HasColumnType("integer")
                         .HasColumnName("dealership_id");
 
                     b.Property<string>("Name")
@@ -215,13 +227,15 @@ namespace ServiceScheduler.Data.Migrations
 
             modelBuilder.Entity("ServiceScheduler.Data.Entities.Vehicle", b =>
                 {
-                    b.Property<Guid>("Id")
+                    b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
+                        .HasColumnType("integer")
                         .HasColumnName("id");
 
-                    b.Property<Guid>("CustomerId")
-                        .HasColumnType("uuid")
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("CustomerId")
+                        .HasColumnType("integer")
                         .HasColumnName("customer_id");
 
                     b.Property<string>("FuelType")

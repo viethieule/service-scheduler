@@ -17,7 +17,7 @@ public class AvailabilityTests(SchedulerFixture fixture)
         await using var db = fixture.CreateContext();
 
         var result = await NewService(db).GetAvailabilityAsync(
-            Guid.NewGuid(), DateOnly.FromDateTime(DateTime.UtcNow.AddDays(30)));
+            serviceTypeId: 999, DateOnly.FromDateTime(DateTime.UtcNow.AddDays(30)));
 
         Assert.False(result.IsSuccess);
         Assert.Equal(BookingError.ServiceTypeNotFound, result.Error);

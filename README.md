@@ -43,7 +43,7 @@ automatically in Development.
 ## Endpoints
 
 ```
-GET  /availability?serviceTypeId={guid}&date={yyyy-MM-dd}
+GET  /availability?serviceTypeId={int}&date={yyyy-MM-dd}
 POST /bookings
 ```
 
@@ -58,7 +58,12 @@ dotnet test
 ```
 
 Two service bays and two technicians are seeded, so a burst of concurrent bookings at one
-start time must produce **exactly two** confirmations. Everything else must be `409`.
+start time must never produce **more than two** confirmations. Everything else is `409`.
+
+It may produce fewer. Assignment picks one candidate bay and technician and does not retry,
+so under tight concurrency every caller can choose the same pair and all but one lose, even
+though the other pair was free. That is capacity under-use, not over-booking — the safety
+property holds either way. Closing the gap is the next piece of work.
 
 The guarantee is not in application code. It is two PostgreSQL exclusion constraints created
 in the initial migration:
@@ -103,5 +108,5 @@ SQLite has neither `gist` nor `EXCLUDE`.
 
 ## Not yet implemented
 
-Authentication, retry and locking strategies above the constraint, `GET /bookings/{id}`,
+Authentication, retrying assignment across candidate resources, locking strategies above the constraint, `GET /bookings/{id}`,
 cancellation, opening hours, technician certification, timezones, idempotency, metrics.

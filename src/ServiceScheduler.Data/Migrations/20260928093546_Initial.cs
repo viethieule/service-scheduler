@@ -1,5 +1,6 @@
 ﻿using System;
 using Microsoft.EntityFrameworkCore.Migrations;
+using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
 #nullable disable
 
@@ -15,7 +16,8 @@ namespace ServiceScheduler.Data.Migrations
                 name: "customers",
                 columns: table => new
                 {
-                    id = table.Column<Guid>(type: "uuid", nullable: false),
+                    id = table.Column<int>(type: "integer", nullable: false)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
                     name = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
                     email = table.Column<string>(type: "character varying(320)", maxLength: 320, nullable: false),
                     phone = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: false)
@@ -29,7 +31,8 @@ namespace ServiceScheduler.Data.Migrations
                 name: "dealerships",
                 columns: table => new
                 {
-                    id = table.Column<Guid>(type: "uuid", nullable: false),
+                    id = table.Column<int>(type: "integer", nullable: false)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
                     name = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
                     address = table.Column<string>(type: "character varying(400)", maxLength: 400, nullable: false)
                 },
@@ -42,7 +45,8 @@ namespace ServiceScheduler.Data.Migrations
                 name: "service_types",
                 columns: table => new
                 {
-                    id = table.Column<Guid>(type: "uuid", nullable: false),
+                    id = table.Column<int>(type: "integer", nullable: false)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
                     name = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
                     duration_minutes = table.Column<int>(type: "integer", nullable: false)
                 },
@@ -55,8 +59,9 @@ namespace ServiceScheduler.Data.Migrations
                 name: "vehicles",
                 columns: table => new
                 {
-                    id = table.Column<Guid>(type: "uuid", nullable: false),
-                    customer_id = table.Column<Guid>(type: "uuid", nullable: false),
+                    id = table.Column<int>(type: "integer", nullable: false)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+                    customer_id = table.Column<int>(type: "integer", nullable: false),
                     vin = table.Column<string>(type: "character varying(17)", maxLength: 17, nullable: false),
                     make = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: false),
                     model = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: false),
@@ -78,8 +83,9 @@ namespace ServiceScheduler.Data.Migrations
                 name: "service_bays",
                 columns: table => new
                 {
-                    id = table.Column<Guid>(type: "uuid", nullable: false),
-                    dealership_id = table.Column<Guid>(type: "uuid", nullable: false),
+                    id = table.Column<int>(type: "integer", nullable: false)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+                    dealership_id = table.Column<int>(type: "integer", nullable: false),
                     name = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: false)
                 },
                 constraints: table =>
@@ -97,8 +103,9 @@ namespace ServiceScheduler.Data.Migrations
                 name: "technicians",
                 columns: table => new
                 {
-                    id = table.Column<Guid>(type: "uuid", nullable: false),
-                    dealership_id = table.Column<Guid>(type: "uuid", nullable: false),
+                    id = table.Column<int>(type: "integer", nullable: false)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+                    dealership_id = table.Column<int>(type: "integer", nullable: false),
                     name = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false)
                 },
                 constraints: table =>
@@ -116,13 +123,14 @@ namespace ServiceScheduler.Data.Migrations
                 name: "appointments",
                 columns: table => new
                 {
-                    id = table.Column<Guid>(type: "uuid", nullable: false),
-                    dealership_id = table.Column<Guid>(type: "uuid", nullable: false),
-                    customer_id = table.Column<Guid>(type: "uuid", nullable: false),
-                    vehicle_id = table.Column<Guid>(type: "uuid", nullable: false),
-                    service_type_id = table.Column<Guid>(type: "uuid", nullable: false),
-                    technician_id = table.Column<Guid>(type: "uuid", nullable: false),
-                    service_bay_id = table.Column<Guid>(type: "uuid", nullable: false),
+                    id = table.Column<int>(type: "integer", nullable: false)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+                    dealership_id = table.Column<int>(type: "integer", nullable: false),
+                    customer_id = table.Column<int>(type: "integer", nullable: false),
+                    vehicle_id = table.Column<int>(type: "integer", nullable: false),
+                    service_type_id = table.Column<int>(type: "integer", nullable: false),
+                    technician_id = table.Column<int>(type: "integer", nullable: false),
+                    service_bay_id = table.Column<int>(type: "integer", nullable: false),
                     start_at = table.Column<DateTime>(type: "timestamptz", nullable: false),
                     end_at = table.Column<DateTime>(type: "timestamptz", nullable: false),
                     status = table.Column<int>(type: "integer", nullable: false),
@@ -228,7 +236,7 @@ namespace ServiceScheduler.Data.Migrations
             //   '[)'          half-open, so an appointment ending at 10:00 does not collide
             //                 with one starting at 10:00.
             //   WHERE status  partial, so a cancelled appointment stops blocking its slot.
-            //   btree_gist    lets a uuid equality share a GiST index with a range overlap.
+            //   btree_gist    lets an integer equality share a GiST index with a range overlap.
             migrationBuilder.Sql("CREATE EXTENSION IF NOT EXISTS btree_gist;");
 
             migrationBuilder.Sql("""

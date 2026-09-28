@@ -6,7 +6,7 @@ namespace ServiceScheduler.Shared;
 /// </summary>
 public interface IServiceContext
 {
-    Guid CustomerId { get; }
+    int CustomerId { get; }
 
     string CorrelationId { get; }
 }

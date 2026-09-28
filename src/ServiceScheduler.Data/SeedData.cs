@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using ServiceScheduler.Data.Entities;
 
 namespace ServiceScheduler.Data;
@@ -9,18 +10,22 @@ namespace ServiceScheduler.Data;
 /// </summary>
 public static class SeedData
 {
-    public static readonly Guid DealershipId = Guid.Parse("11111111-1111-1111-1111-111111111111");
-    public static readonly Guid BayOneId     = Guid.Parse("22222222-2222-2222-2222-222222222201");
-    public static readonly Guid BayTwoId     = Guid.Parse("22222222-2222-2222-2222-222222222202");
-    public static readonly Guid TechOneId    = Guid.Parse("33333333-3333-3333-3333-333333333301");
-    public static readonly Guid TechTwoId    = Guid.Parse("33333333-3333-3333-3333-333333333302");
-    public static readonly Guid CustomerId   = Guid.Parse("44444444-4444-4444-4444-444444444444");
-    public static readonly Guid VehicleId    = Guid.Parse("55555555-5555-5555-5555-555555555555");
+    public const int DealershipId = 1;
+    public const int BayOneId = 1;
+    public const int BayTwoId = 2;
+    public const int TechOneId = 1;
+    public const int TechTwoId = 2;
+    public const int CustomerId = 1;
+    public const int VehicleId = 1;
 
-    public static readonly Guid OilChangeId    = Guid.Parse("66666666-6666-6666-6666-666666666601");
-    public static readonly Guid TyreChangeId   = Guid.Parse("66666666-6666-6666-6666-666666666602");
-    public static readonly Guid DiagnosticId   = Guid.Parse("66666666-6666-6666-6666-666666666603");
-    public static readonly Guid BrakeServiceId = Guid.Parse("66666666-6666-6666-6666-666666666604");
+    public const int OilChangeId = 1;
+    public const int TyreChangeId = 2;
+    public const int DiagnosticId = 3;
+    public const int BrakeServiceId = 4;
+
+    /// <summary>Tables seeded with explicit keys, whose identity sequences must be advanced.</summary>
+    private static readonly string[] SeededTables =
+        ["dealerships", "service_bays", "technicians", "service_types", "customers", "vehicles"];
 
     public static async Task EnsureSeededAsync(SchedulerDbContext db, CancellationToken ct = default)
     {
@@ -67,5 +72,23 @@ public static class SeedData
         });
 
         await db.SaveChangesAsync(ct);
+        await AdvanceIdentitySequencesAsync(db, ct);
+    }
+
+    /// <summary>
+    /// Seeding writes explicit keys, which leaves each identity sequence still at 1.
+    /// Without this, the next generated key would collide with a seeded row.
+    /// </summary>
+    private static async Task AdvanceIdentitySequencesAsync(
+        SchedulerDbContext db, CancellationToken ct)
+    {
+        foreach (var table in SeededTables)
+        {
+            // Table names come from the fixed list above, never from input.
+            var sql = "SELECT setval(pg_get_serial_sequence('" + table + "', 'id'), "
+                    + "(SELECT COALESCE(MAX(id), 1) FROM " + table + "));";
+
+            await db.Database.ExecuteSqlRawAsync(sql, ct);
+        }
     }
 }
