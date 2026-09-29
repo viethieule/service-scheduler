@@ -10,16 +10,35 @@ double-books resources.
 
 The **Unified Service Scheduler** replaces this with one application that lets a vehicle
 owner book directly, guaranteeing every confirmed appointment has a service bay and a
-qualified technician reserved for its full duration — under one scheduling model shared
-across all dealerships on the platform.
+technician reserved for its full duration — under one scheduling model shared across all
+dealerships on the platform.
 
 ## 2. Assumptions
 
+The brief leaves these open. Each is a deliberate call, not an accident of the code.
+
 1. **Dealership is a tenant** of our system and owns its resource data (service bays,
-   technicians, service types) inside it. Integrating with external dealership
-   systems on the booking path is not realistic, and is out of scope.
-2. **Vehicles live inside our system too**, owned by the customer and pre-registered. A
-   booking references a `vehicleId`; VIN lookup and vehicle onboarding are out of scope.
+   technicians, service types) inside it. Real dealership schedules live in a DMS whose
+   interfaces are slow, often batch, and cannot atomically hold a slot, so a federated
+   availability check on the booking path is not viable.
+2. **Vehicles live inside our system**, owned by the customer and pre-registered. A booking
+   references a `vehicleId`; VIN lookup and vehicle onboarding are out of scope.
+3. **Every technician is qualified for every service type.** FR 2 asks for a *qualified*
+   technician. Modelling qualification — a technician-to-service-type link — only narrows
+   which technicians are candidates. It does not change how two bookings are prevented
+   from overlapping, which is the hard problem here, so it is left out to keep the model
+   small. Adding it later touches the candidate filter, not the constraints or the lock.
+4. **Business day of 08:00–18:00 UTC** for every dealership, standing in for opening hours.
+   Without some bound the slot grid runs midnight to midnight. It also keeps every booking
+   inside one calendar date, which the locking design relies on (8.3).
+5. **Offered start times sit on a 30-minute grid.** It is the knob trading precision against
+   contention. `POST /bookings` does not enforce the grid; it only shapes what is offered.
+6. **All times are UTC.** Contention is scoped to one dealership, so every compared timestamp
+   shares a zone. Per-dealership local time is out of scope, but UTC storage is kept because
+   it is expensive to retrofit and free now.
+7. **The caller is identified by an `X-Customer-Id` header**, defaulting to the seeded
+   customer. Authentication is out of scope, but the booking still needs an owner to check
+   the vehicle against.
 
 ## 3. Technology Choices
 
@@ -27,34 +46,27 @@ across all dealerships on the platform.
 effort in this exercise goes into the scheduling problem rather than into learning a framework.
 Nothing in the design depends on it; the parts that carry the invariant live in the database.
 
-**PostgreSQL.** This one is not a default. I chose it for the `EXCLUDE` constraint over a
-`btree_gist` index, which lets the no-overlap invariant (NFR 5.1) be stated once,
-declaratively, at the data layer, instead of being re-implemented in every code path that
-writes an appointment. That makes this a deliberately technology-led decision: the hardest
-requirement — never double-booking a bay or a technician under concurrency — drove the choice
-of database, rather than the database being picked first and the requirement bent to fit it.
-Starting from a store without range exclusion, correctness would have had to be maintained by
-application code, which is exactly what NFR 5.1 says it must not depend on.
+**PostgreSQL.** This one is not a default. It was chosen for the `EXCLUDE` constraint over a
+`btree_gist` index, which states the no-overlap invariant (NFR 5.1) once, declaratively, at
+the data layer, instead of re-implementing it in every code path that writes an appointment.
+The exclusion-constraint approach was Claude's proposal; choosing the database because of it
+was my decision. The
+hardest requirement drove the choice of store, rather than the store being picked first and
+the requirement bent to fit it.
 
-**Concurrency control: optimistic first, pessimistic only where it earns its place.** My
-preference is to reach for optimistic concurrency at the high level and to add pessimistic
-locking only where measurement or reasoning shows it is needed, rather than serialising by
-reflex. The code follows that order literally. The exclusion constraints came first and are
-always on: they are the floor, they cost nothing until a conflict actually occurs, and they
-protect every writer. The dealership-day advisory lock was added afterwards, on top, and only
-once the cost of the optimistic-only approach was understood — the loser of a race was
-rejected even when a second bay was free, so the system reported no capacity while capacity
-existed. The lock exists to recover that wasted capacity, not to establish correctness; remove
-it and utilisation degrades, but the data cannot be corrupted.
+**Concurrency control: optimistic first, pessimistic only where it earns its place.** The
+exclusion constraints came first and are always on: they are the floor, cost nothing until a
+conflict occurs, and protect every writer. The dealership-day advisory lock was added
+afterwards, on top, once the cost of optimism alone was clear — the loser of a race was
+rejected even when a second bay was free. The lock exists to recover that wasted capacity,
+not to establish correctness; remove it and utilisation degrades, but the data cannot be
+corrupted.
 
-**EF Core used directly in the service layer.** `BookingService` takes the `DbContext` and
-treats it as the unit of work. There is no repository interface in front of it, because EF
-Core already is one: `DbSet<T>` is a repository and `SaveChangesAsync` is a unit-of-work
-commit. Wrapping them would add a layer that only forwards calls, and it would obscure the two
+**EF Core used directly in the service layer.** `BookingService` takes the `DbContext` as its
+unit of work, with no repository in front. `DbSet<T>` already is a repository, and the two
 things this design depends on most — the advisory lock and the exclusion-violation SQLSTATE —
-both PostgreSQL specific, and both of which would leak through such an abstraction anyway. The
-trade is that the service layer is tied to EF Core. I accept it, and state the persistence
-exception openly rather than hide it behind a pretence of portability.
+are PostgreSQL specific and would leak through such an abstraction anyway. The service layer
+is tied to EF Core, and I state that exception openly rather than pretend to portability.
 
 ## 4. Functional Requirements
 
@@ -62,6 +74,7 @@ exception openly rather than hide it behind a pretence of portability.
    specific vehicle, service type, and dealership at a desired time.
 2. **Real-Time Availability Check**: Before confirming, check for the availability of
    both a ServiceBay and a qualified Technician for the entire service duration.
+   Qualification: see Assumption 3.
 3. **Confirmed Appointment Record**: Upon success, create a persistent Appointment record
    associating the customer, vehicle, technician, and service bay.
 
@@ -76,18 +89,26 @@ reads are therefore **advisory** (a best-effort snapshot), while the booking con
 
 ### 5.2 Observability
 
-Structured logs with a correlation id across the booking flow, plus booking funnel metrics
-(availability → attempt → confirmed / conflicted / rejected). Conflict rate is a
-first-class signal: a rising rate means slot granularity or the concurrency strategy is
-wrong.
+Kept deliberately small at this stage.
+
+- **Implemented — two structured log events**, for the two booking outcomes that leave no
+  other trace. A *lock timeout* (`503`) never reaches the database, so the log line is the
+  only record it happened. An *overlap-constraint rejection* should be unreachable through
+  the service; if it fires, a writer bypassed the lock or the locking path regressed —
+  otherwise invisible, because bookings keep succeeding either way.
+- **Planned — metrics**: a booking outcome counter (confirmed / no capacity / busy) and a
+  lock-wait histogram. A rising conflict or busy rate is the signal that slot granularity or
+  the concurrency strategy is wrong.
+- **Planned — tracing**: one OpenTelemetry span around the booking transaction. Its W3C trace
+  id is already exposed on `IServiceContext` for correlating logs, but is not yet attached to
+  them.
 
 ### 5.3 Out of scope
 
 Acknowledged but excluded to keep scope on preventing overlapping bookings: dealership
-operating hours and technician roster calendars, timezone and daylight-saving handling,
-request idempotency, fail-closed degradation, injectable clock for testability, audit
-trail, authorisation and tenant security, durability of downstream effects, and
-data-driven scheduling policy.
+operating hours and technician roster calendars, technician qualification, timezone and
+daylight-saving handling, request idempotency, authorisation and tenant security, audit
+trail, and data-driven scheduling policy.
 
 ## 6. Core Entities
 
@@ -106,14 +127,11 @@ Notes:
 - `Appointment` carries the consistency invariant (NFR 5.1): no two active appointments may
   overlap on the same `technician_id`, nor on the same `service_bay_id`.
 - Availability is determined **solely** by the absence of an overlapping appointment — a
-  resource is available whenever it is not already booked. Opening hours and technician
-  rosters are out of scope (NFR 5.3).
-- All times are UTC — `start_at`, `end_at`, the requested `date` and the returned slots.
-  Per-dealership local time is out of scope (NFR 5.3).
+  resource is available whenever it is not already booked (Assumption 4 bounds the day).
 
 ## 7. API Endpoints
 
-Both endpoints are owned by a single service (section 8.1).
+Both endpoints are owned by a single service (8.1).
 
 ```
 GET  /availability?serviceTypeId=&date=
@@ -126,36 +144,32 @@ Answers **"where and when can I bring the car in?"** — it returns candidate de
 with its bookable start times. Service bays and technicians are capacity that gates whether a
 time is offered; they are never exposed to the customer and never chosen by them.
 
-A start time is offered when, for `window = [start, start + duration)`, the dealership has at
-least one service bay free for the whole window **and** at least one technician free for the
-whole window — checked independently, since a bay and a technician are paired only at booking. Free means no overlapping appointment. 
-
-Assumption:
-Candidate start times are stepped on a 30-minute grid.
-
-Request:
+A start time on the 30-minute grid is offered when, for `window = [start, start + duration)`,
+the dealership has at least one service bay free for the whole window **and** at least one
+technician free for the whole window — checked independently, since a bay and a technician
+are paired only at booking. Free means no overlapping appointment.
 
 | Parameter | Required | Notes |
 | --- | --- | --- |
 | `serviceTypeId` | yes | determines the appointment duration |
-| `date` | yes | a single day |
+| `date` | yes | a single day, `yyyy-MM-dd` |
 
 ```
-GET /availability?serviceTypeId=svc_brake&date=2026-10-02
+GET /availability?serviceTypeId=4&date=2026-10-02
 ```
 
 Response `200`:
 
 ```json
 {
-  "serviceTypeId": "svc_brake",
+  "serviceTypeId": 4,
   "durationMinutes": 120,
   "date": "2026-10-02",
   "slotGranularityMinutes": 30,
   "dealerships": [
-    { "dealershipId": "dlr_123", "name": "Northside Motors",
+    { "dealershipId": 1, "name": "Northside Motors",
       "slots": ["08:00", "08:30", "13:00"] },
-    { "dealershipId": "dlr_777", "name": "Riverside Auto",
+    { "dealershipId": 2, "name": "Riverside Auto",
       "slots": ["09:00", "15:30"] }
   ]
 }
@@ -166,17 +180,16 @@ Dealerships are ordered by name; one with no free slots is omitted rather than r
 | Status | Meaning |
 | --- | --- |
 | `200 OK` | possibly an empty `dealerships` array — a valid answer, not an error |
-| `422 Unprocessable` | unknown `serviceTypeId`, malformed or past `date` |
+| `400 Bad Request` | missing or malformed parameter |
+| `422 Unprocessable` | unknown `serviceTypeId` |
 
 ### 7.2 `POST /bookings`
 
-Request:
-
 ```json
 {
-  "dealershipId": "dlr_123",
-  "vehicleId": "veh_456",
-  "serviceTypeId": "svc_brake",
+  "dealershipId": 1,
+  "vehicleId": 1,
+  "serviceTypeId": 4,
   "startAt": "2026-10-02T09:00:00Z"
 }
 ```
@@ -189,6 +202,10 @@ reserves those, so the client cannot propose an invalid pairing or hold a stale 
 | --- | --- |
 | `201 Created` | Appointment confirmed; body includes the assigned `technicianId` and `serviceBayId` |
 | `409 Conflict` | No bay or no technician free for the whole duration |
+| `422 Unprocessable` | Unknown dealership, vehicle or service type; vehicle not owned by the caller; start in the past; window outside the business day |
+| `503 Service Unavailable` | The dealership-day lock was not acquired in time — capacity was never determined, so retry |
+
+The `Location` header points at `/bookings/{id}`, which is not implemented yet.
 
 ## 8. High-Level Design
 
@@ -219,10 +236,10 @@ Diagram: [high-level-design.excalidraw](high-level-design.excalidraw) — open a
 ### 8.1 Components
 
 - **API Gateway** — single entry point: routing, authentication, rate limiting. Keeps
-  cross-cutting concerns out of the service.
+  cross-cutting concerns out of the service. Not implemented in this exercise.
 - **Booking Service** — owns `Appointment`, and therefore availability computation and the
   write path. This is where the consistency invariant (NFR 5.1) is enforced.
-- **Database** — one PostgreSQL instance.
+- **Database** — one PostgreSQL instance, holding the exclusion constraints.
 
 ### 8.2 Booking request flow
 
@@ -246,95 +263,88 @@ call reserves nothing.
 **7 — Server confirms atomically.** In one transaction the Booking Service:
 
 1. resolves `duration` from the service type and computes `end_at`;
-2. re-evaluates availability for `[start_at, end_at)` — the authoritative check;
-3. picks one free bay and one free technician;
-4. inserts the `Appointment`, with the database rejecting any overlap on either resource.
+2. takes the dealership-day lock (8.3);
+3. re-evaluates availability for `[start_at, end_at)` — the authoritative check;
+4. picks one free bay and one free technician;
+5. inserts the `Appointment`, with the database rejecting any overlap on either resource.
 
 On success `201` with the assigned `technicianId` and `serviceBayId`. On a lost race `409`, and
 the customer returns to step 4 with a refreshed slot list.
 
-Note the ordering: the dealership is now an **output of step 4**, not an input. FR 1 still holds
-— `POST /bookings` names a specific dealership — but the customer discovers it by availability
-rather than choosing it up front.
+The dealership is an **output of step 4**, not an input. FR 1 still holds — `POST /bookings`
+names a specific dealership — but the customer discovers it by availability rather than
+choosing it up front.
 
-Steps 4 and 7 both perform the availability check, and that duplication is deliberate: step 4
-is a fast, cacheable, advisory read that makes the UI usable; step 7 is the transactional one
-that actually upholds NFR 5.1. Only the second is trusted.
+Steps 4 and 7 both check availability, deliberately: step 4 is a fast, cacheable, advisory read
+that makes the UI usable; step 7 is the transactional one that upholds NFR 5.1. Only the
+second is trusted.
 
-## 9. Use of Generative AI
+### 8.3 Concurrency
 
-I used Claude throughout the design phase, and it is worth being specific about how, because
-"AI-assisted" on its own says nothing.
+Two mechanisms, at different levels:
 
-### Filling the gaps the brief left open
+- **Exclusion constraints — the floor.** Two separate `EXCLUDE USING gist` constraints on
+  `appointments`, one per resource, over `tstzrange(start_at, end_at, '[)')`, partial on
+  confirmed status. One combined constraint would only reject rows matching on *both* bay and
+  technician. They police every writer, including ones that bypass the service.
+- **Dealership-day advisory lock — utilisation.** `pg_advisory_xact_lock(dealership_id, day)`
+  serialises bookings for one dealership on one date, so the authoritative read sees committed
+  state and a free bay is never wasted on a lost race. The lock is released on commit.
+  `lock_timeout` bounds the wait and turns it into `503`.
 
-The brief gave three functional requirements and five non-functional ones. It said nothing
-about where resource data lives, where vehicles come from, how long a service takes, what
-makes a technician qualified, when a dealership is open, or how finely time is divided. Every
-one of those has to be decided before a single line can be written, and none of them is
-derivable from the requirements.
+A cheap pre-check read runs before the lock, so requests against an already-full dealership
+return `409` without queueing.
 
-I used the model as a domain sounding board to make those calls deliberately rather than by
-accident. The pattern each time was the same: state my conjecture, ask what a real system in
-this domain does, then decide.
+## 9. Building for the Future
 
-| The brief did not say | What I assumed | Why |
-| --- | --- | --- |
-| Who owns bay and technician data | The dealership is a tenant of this system and owns it here | Real dealership schedules live in a DMS, whose interfaces are slow, often batch, and non-transactional. A slot cannot be atomically claimed in one, so a federated availability check on the request path is not viable |
-| Where vehicles come from | Customer-owned and pre-registered, referenced by id | A vehicle belongs to its owner, not a dealership, and the VIN is its identity. VIN decoding is a separate concern |
-| How long a service takes | `ServiceType` carries `duration_minutes` | FR 2 requires the whole duration to be free, so duration must be data, not a constant |
-| What "qualified" means | Initially a certification set on the technician; later dropped | FR 2 says "qualified Technician", but modelling it added a join table that earned nothing for the concurrency problem this exercise is about |
-| Dealership opening hours | A fixed `BUSINESS_DAY` of 08:00-18:00 UTC | Without any bound the candidate grid runs midnight to midnight and offers 03:00 appointments. A placeholder constant is honest; per-dealership hours are out of scope (NFR 5.3) |
-| How finely time is divided | A 30-minute grid | It is the knob trading UX precision against contention, so it needs a stated value rather than an accidental one |
-| Whether the customer picks the dealership or discovers it | Discovers it: service type and date are inputs, dealerships are results | FR 1 names a dealership in the *booking*, which is still true; how the customer arrived at it is a browse concern |
-| Who the caller is | `IServiceContext`, stubbed from a header | Authentication is out of scope, but the booking still needs an owner to check the vehicle against |
+- **Scalability.** The workload is read-heavy: customers browse many dates before booking once.
+  Because availability is advisory, it can be cached or served from a read replica without
+  affecting correctness. Today it scans every dealership; at platform scale it needs a location
+  filter and paging. Writes contend only within one dealership-day — the lock never makes two
+  dealerships, or two days, wait on each other.
+- **Performance.** Each booking holds its lock for a few milliseconds (one indexed read and one
+  insert), so a single dealership-day can take hundreds of bookings per second — far above real
+  demand for one site.
+- **Reliability.** `lock_timeout` bounds how long a request waits; `503` (retry) is kept distinct
+  from `409` (a real answer), so load is never reported as "no capacity". The known weak point
+  is the **shared connection pool**: a simultaneous burst against one empty dealership-day
+  queues on the lock while holding pooled connections. By estimate, ~1,000 simultaneous
+  arrivals would delay the whole platform by about two seconds, and ~10,000 would exceed the
+  pool timeout. The fixes are per-dealership admission control and separate pools for the read
+  and write paths — not implemented.
+- **Maintainability.** The invariant lives in the schema, so a new write path — an admin tool,
+  a data migration — cannot break it by forgetting a check. Layers are small and one-way:
+  API → Services → Data → Shared.
+- **Observability.** See 5.2.
 
-Two of those I later reversed on purpose. Technician certifications went out because they made
-the model larger without making the interesting problem harder. Timezones went out because,
-with contention scoped to one dealership, every timestamp being compared shares a zone, so
-naive local times would compare correctly anyway — but I kept UTC storage, because that is a
-column type decision that is expensive to retrofit and free to get right now.
+## 10. Use of Generative AI
 
-### How the exchange actually went
+I used Claude throughout the design phase as a **domain sounding board**, not a designer. The
+pattern was the same each time: state my conjecture, ask what a real system in this domain
+does, then decide. The implementation phase is covered in the README's *AI Collaboration
+Narrative*.
 
-Not one prompt and one answer. Each decision took several rounds, and the useful ones were
-where I pushed back.
+**Filling the gaps.** The brief says nothing about where resource data lives, where vehicles
+come from, how long a service takes, what "qualified" means, or when a dealership is open. The
+assumptions in section 2 are the result of those exchanges — for example, I asked whether the
+system should store bays and technicians or call the dealership's own APIs, and rejected
+federation once it was clear a DMS cannot hold a slot.
 
-On the domain, I started by putting two conjectures to it and asking which was realistic,
-rather than asking it to design anything. On availability, I proposed returning dealerships
-with their free bays and technicians; it argued resources should never be exposed to a
-customer, and I took that but kept my inversion of dealership from input to output. On the
-service split, I asked whether the availability endpoint belonged in the read service and was
-told no, then noticed myself that the read service now had nothing left to own — which the
-model had not raised. On REST, I asked whether `/availability` was compliant, which surfaced a
-`201` with no `Location` header pointing at an endpoint that does not exist; I deferred that
-knowingly rather than take the fix.
+**Cutting what the model added.** The model's instinct is a richer domain model than the
+requirements need, and the design shrank at almost every step: operating hours, technician
+shifts, technician certifications, `is_active` flags and per-dealership timezones all went out.
+An early two-service split (a Resource Service beside the Booking Service) was folded into one.
 
-The most consistent pattern was cutting. The model's instinct is a richer domain model than
-the requirements need, and the design shrank at almost every step: operating hours, technician
-shifts, certifications, `is_active` flags, per-dealership timezones. I also edited this
-document by hand to simplify it, then had the model reconcile the seven cross-references it
-had left dangling.
+**Where the ideas came from.**
 
-### Design-phase question log
+- *Mine:* making the dealership an output of availability rather than an input; noticing that
+  the Resource Service had nothing left to own once availability returned dealerships inline —
+  the model had not raised it; keeping UTC storage when timezones went out of scope.
+- *The model's, adopted:* never exposing bays and technicians to the customer, which would have
+  promised a specific pair; the `EXCLUDE` constraint approach that decided the database.
+- *Surfaced by asking, then deferred:* asking whether `/availability` was REST-compliant
+  surfaced a `201` whose `Location` points at a `GET /bookings/{id}` that does not exist.
+  I left it outstanding knowingly.
 
-A condensed record of what I asked and what changed as a result.
-
-| I asked | Outcome |
-| --- | --- |
-| Does the system store dealership bays and technicians, or call the dealership's own APIs? | Dealership-as-tenant. Federated availability rejected: DMS interfaces cannot hold a slot |
-| Does the vehicle belong to the dealership or the customer? | Customer-owned, VIN as identity, dealership link is non-exclusive |
-| What is a realistic booking flow — does the customer type the vehicle in? | Selected from a garage; VIN or plate entry only as fallback |
-| What is the simplest workable assumption for vehicles? | Vehicle as a first-class row, referenced by id. Raw VIN entry gives a string with no attributes to check qualification against |
-| Review my four non-functional requirements | Availability correctness merged into consistency; idempotency, fail-closed, clock injection and audit trail proposed, and I put them out of scope |
-| Is read scalability the right third NFR here? | Yes — reads outnumber writes heavily and each availability query is an expensive interval search |
-| What are `DealershipOperatingHours` and `TechnicianShift` for? | They bound FR 2's "entire duration" check; absence of a booking is not availability |
-| Should I remove them and put timezones out of scope? | Agreed, with UTC storage kept as a convention rather than a requirement |
-| Can the customer pick only service type and date, and get dealerships back? | Yes for dealerships as output; no for exposing bays and technicians, which would promise a specific pair |
-| Does the read service become redundant then? | Yes — mis-stocked rather than redundant; its endpoints were swapped, and it was later folded in entirely |
-| Is `/availability` REST-compliant on the booking resource? | Compliant as a derived collection. Surfaced the missing `Location` header, deferred |
-| Is `/dealerships/{id}/availability` served by the read service? | No. Ownership follows the data read, not the URL shape |
-| What did the model's cleanup leave broken after I edited the document? | Seven dangling cross-references, found and fixed |
-
-Every structural decision recorded above is mine. The README's *AI Collaboration Narrative*
-covers the implementation phase and the verification side.
+**Keeping the document honest.** I edited this document by hand to simplify it, then had the
+model re-read it and fix the seven cross-references my edits had left dangling.
